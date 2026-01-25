@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class HttpStatus(Enum):
-    """API响应状态枚举"""
+    """响应状态枚举"""
     SUCCESS = "success"
     HTTP_ERROR = "http_error"
     NETWORK_ERROR = "network_error"
@@ -150,10 +150,10 @@ class HttpClient:
         default_headers: Optional[Dict[str, str]] = None
     ):
         """
-        初始化API客户端
+        初始化客户端
         
         Args:
-            base_url: API基础URL
+            base_url: 基础URL
             default_timeout: 默认超时时间（秒）
             retry_strategy: 重试策略
             rate_limiter: 速率限制器

@@ -1,10 +1,10 @@
-from HttpHelper import StableAPIClient
+from httpHelper import HttpClient
 
 # 使用示例
 if __name__ == "__main__":
     # 1. 基本使用
     print("=== 基本使用示例 ===")
-    client = StableAPIClient(
+    client = HttpClient(
         base_url="https://jsonplaceholder.typicode.com",
         default_timeout=10
     )

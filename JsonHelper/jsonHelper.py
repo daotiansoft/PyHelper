@@ -8,7 +8,7 @@ from enum import Enum
 import re
 
 
-class SafeJSON:
+class JsonHelper:
     """安全的JSON数据处理类"""
     
     @staticmethod
@@ -107,13 +107,13 @@ class SafeJSON:
             else:
                 parts.append(part)
         
-        return SafeJSON.get_value(data, *parts, default=default)
+        return JsonHelper.get_value(data, *parts, default=default)
     
     @staticmethod
     def get_string(data: Any, *keys, default: str = "", 
                   strip: bool = True) -> str:
         """安全获取字符串值"""
-        value = SafeJSON.get_value(data, *keys, default=default)
+        value = JsonHelper.get_value(data, *keys, default=default)
         if value is None:
             return default
         
@@ -125,7 +125,7 @@ class SafeJSON:
                min_val: Optional[int] = None,
                max_val: Optional[int] = None) -> int:
         """安全获取整数值"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None:
             return default
         
@@ -145,7 +145,7 @@ class SafeJSON:
                  max_val: Optional[float] = None,
                  precision: Optional[int] = None) -> float:
         """安全获取浮点数值"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None:
             return default
         
@@ -166,7 +166,7 @@ class SafeJSON:
                 true_values: List[Any] = None,
                 false_values: List[Any] = None) -> bool:
         """安全获取布尔值"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None:
             return default
         
@@ -187,7 +187,7 @@ class SafeJSON:
     def get_list(data: Any, *keys, default: Optional[List] = None,
                 item_type: Optional[Callable] = None) -> List:
         """安全获取列表值"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None:
             return default if default is not None else []
         
@@ -205,7 +205,7 @@ class SafeJSON:
     @staticmethod
     def get_dict(data: Any, *keys, default: Optional[Dict] = None) -> Dict:
         """安全获取字典值"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None or not isinstance(value, dict):
             return default if default is not None else {}
         return dict(value)
@@ -214,7 +214,7 @@ class SafeJSON:
     def get_datetime(data: Any, *keys, default: Optional[datetime] = None,
                     format: str = "%Y-%m-%d %H:%M:%S") -> Optional[datetime]:
         """安全获取日期时间值"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None:
             return default
         
@@ -237,7 +237,7 @@ class SafeJSON:
     @staticmethod
     def get_decimal(data: Any, *keys, default: Decimal = None) -> Optional[Decimal]:
         """安全获取Decimal值（用于精确计算）"""
-        value = SafeJSON.get_value(data, *keys)
+        value = JsonHelper.get_value(data, *keys)
         if value is None:
             return default
         
@@ -263,7 +263,7 @@ class SafeJSON:
         Example:
             >>> data = {"user": {"name": "Alice", "age": 30}}
             >>> mapping = {"username": "user.name", "userage": "user.age"}
-            >>> SafeJSON.extract(data, mapping)
+            >>> JsonHelper.extract(data, mapping)
             {"username": "Alice", "userage": 30}
         """
         result = {}
@@ -271,11 +271,11 @@ class SafeJSON:
         
         for new_key, source_path in mapping.items():
             if isinstance(source_path, str):
-                value = SafeJSON.get_path(data, source_path)
+                value = JsonHelper.get_path(data, source_path)
             elif callable(source_path):
                 value = source_path(data)
             else:
-                value = SafeJSON.get_value(data, source_path)
+                value = JsonHelper.get_value(data, source_path)
             
             if value is None:
                 value = default_values.get(new_key)
