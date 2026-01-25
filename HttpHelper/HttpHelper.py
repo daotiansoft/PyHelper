@@ -2,55 +2,61 @@
 import logging
 from enum import Enum
 import requests
-import json
 import time
 from typing import Optional, Dict, Any, Union, Callable, List
 from dataclasses import dataclass, asdict
 from threading import Lock
 import random
+import os
 
 
 # 设置日志
+try:
+    os.makedirs('./logs', exist_ok=True)
+except Exception as e:
+    pass
+
+log_filename = './logs/HttpHelper_%s.log' % (time.strftime("%Y%m%d%H", time.localtime()))
 logging.basicConfig(
+    filename = log_filename,
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 
-class APIStatus(Enum):
+class HttpStatus(Enum):
     """API响应状态枚举"""
     SUCCESS = "success"
     HTTP_ERROR = "http_error"
     NETWORK_ERROR = "network_error"
     TIMEOUT = "timeout"
-    JSON_ERROR = "json_error"
-    VALIDATION_ERROR = "validation_error"
     RATE_LIMIT = "rate_limit"
     UNKNOWN_ERROR = "unknown_error"
 
 @dataclass
-class APIResponse:
+class HttpResponse:
     """API响应数据类"""
-    status: APIStatus
+    status: HttpStatus
     data: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     status_code: Optional[int] = None
     url: Optional[str] = None
     elapsed_time: Optional[float] = None
     retry_count: int = 0
+    response: requests.Response = None
     
     @property
     def is_success(self) -> bool:
-        return self.status == APIStatus.SUCCESS
+        return self.status == HttpStatus.SUCCESS
     
     @property
     def should_retry(self) -> bool:
         """判断是否需要重试"""
         retryable_statuses = [
-            APIStatus.NETWORK_ERROR,
-            APIStatus.TIMEOUT,
-            APIStatus.RATE_LIMIT
+            HttpStatus.NETWORK_ERROR,
+            HttpStatus.TIMEOUT,
+            HttpStatus.RATE_LIMIT
         ]
         return self.status in retryable_statuses
     
@@ -120,9 +126,9 @@ class RetryStrategy:
         return max(0.1, wait_time + jitter)
     
 
-class StableAPIClient:
+class HttpClient:
     """
-    稳定的API客户端
+    HTTP客户端
     
     特性：
     1. 完整的异常处理
@@ -170,7 +176,7 @@ class StableAPIClient:
         # 配置请求头
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
+            'Accept': '*/*',
             'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive',
         })
@@ -202,41 +208,24 @@ class StableAPIClient:
             return f"{self.base_url}/{endpoint.lstrip('/')}"
         return endpoint
     
-    def _validate_response(self, response: requests.Response) -> Optional[str]:
-        """验证响应，返回错误信息或None"""
-        try:
-            # 检查内容类型
-            content_type = response.headers.get('Content-Type', '')
-            if 'application/json' not in content_type:
-                return f"非JSON响应类型: {content_type}"
-            
-            # 尝试解析JSON
-            response.json()
-            return None
-            
-        except json.JSONDecodeError:
-            return "响应不是有效的JSON格式"
-        except Exception as e:
-            return f"响应验证失败: {str(e)}"
-    
-    def _handle_exception(self, exception: Exception, url: str) -> APIResponse:
-        """处理异常并返回适当的APIResponse"""
+    def _handle_exception(self, exception: Exception, url: str) -> HttpResponse:
+        """处理异常并返回适当的HttpResponse"""
         
         # 更新统计
         self.stats['failed_requests'] += 1
         
         if isinstance(exception, requests.exceptions.Timeout):
             logger.warning(f"请求超时: {url}")
-            return APIResponse(
-                status=APIStatus.TIMEOUT,
+            return HttpResponse(
+                status=HttpStatus.TIMEOUT,
                 error_message="请求超时",
                 url=url
             )
         
         elif isinstance(exception, requests.exceptions.ConnectionError):
             logger.warning(f"连接错误: {url}")
-            return APIResponse(
-                status=APIStatus.NETWORK_ERROR,
+            return HttpResponse(
+                status=HttpStatus.NETWORK_ERROR,
                 error_message="网络连接错误",
                 url=url
             )
@@ -247,33 +236,24 @@ class StableAPIClient:
             
             if status_code == 429:
                 logger.warning(f"速率限制: {url}")
-                return APIResponse(
-                    status=APIStatus.RATE_LIMIT,
+                return HttpResponse(
+                    status=HttpStatus.RATE_LIMIT,
                     error_message="请求过于频繁，被限流",
                     status_code=status_code,
                     url=url
                 )
             else:
                 logger.error(f"HTTP错误 {status_code}: {url}")
-                return APIResponse(
-                    status=APIStatus.HTTP_ERROR,
+                return HttpResponse(
+                    status=HttpStatus.HTTP_ERROR,
                     error_message=f"HTTP错误: {str(exception)}",
                     status_code=status_code,
                     url=url
                 )
-        
-        elif isinstance(exception, json.JSONDecodeError):
-            logger.error(f"JSON解析错误: {url}")
-            return APIResponse(
-                status=APIStatus.JSON_ERROR,
-                error_message="响应JSON解析失败",
-                url=url
-            )
-        
         else:
             logger.error(f"未知错误: {url} - {type(exception).__name__}: {str(exception)}")
-            return APIResponse(
-                status=APIStatus.UNKNOWN_ERROR,
+            return HttpResponse(
+                status=HttpStatus.UNKNOWN_ERROR,
                 error_message=f"未知错误: {str(exception)}",
                 url=url
             )
@@ -283,7 +263,7 @@ class StableAPIClient:
         method: str,
         url: str,
         **kwargs
-    ) -> APIResponse:
+    ) -> HttpResponse:
         """发送单个请求（无重试）"""
         start_time = time.time()
         
@@ -308,30 +288,19 @@ class StableAPIClient:
             
             # 检查HTTP状态码
             response.raise_for_status()
-            
-            # 验证响应
-            validation_error = self._validate_response(response)
-            if validation_error:
-                return APIResponse(
-                    status=APIStatus.VALIDATION_ERROR,
-                    error_message=validation_error,
-                    status_code=response.status_code,
-                    url=url,
-                    elapsed_time=elapsed
-                )
-            
-            # 解析JSON
-            data = response.json()
+
+            data = response.text
             
             # 更新成功统计
             self.stats['successful_requests'] += 1
             
-            return APIResponse(
-                status=APIStatus.SUCCESS,
+            return HttpResponse(
+                status=HttpStatus.SUCCESS,
                 data=data,
                 status_code=response.status_code,
                 url=url,
-                elapsed_time=elapsed
+                elapsed_time=elapsed,
+                response=response
             )
             
         except Exception as e:
@@ -346,7 +315,7 @@ class StableAPIClient:
         endpoint: str,
         retry_on_failure: bool = True,
         **kwargs
-    ) -> APIResponse:
+    ) -> HttpResponse:
         """
         发送HTTP请求
         
@@ -357,7 +326,7 @@ class StableAPIClient:
             **kwargs: 传递给requests的额外参数
             
         Returns:
-            APIResponse对象
+            HttpResponse
         """
         url = self._make_url(endpoint)
         logger.debug(f"发送请求: {method} {url}")
@@ -390,21 +359,21 @@ class StableAPIClient:
         
         return response
     
-    def get(self, endpoint: str, **kwargs) -> APIResponse:
+    def get(self, endpoint: str, **kwargs) -> HttpResponse:
         """发送GET请求"""
         return self.request('GET', endpoint, **kwargs)
     
-    def post(self, endpoint: str, data: Optional[Dict] = None, **kwargs) -> APIResponse:
+    def post(self, endpoint: str, data: Optional[Dict] = None, **kwargs) -> HttpResponse:
         """发送POST请求"""
-        kwargs.setdefault('json', data)
+        kwargs['data'] = data
         return self.request('POST', endpoint, **kwargs)
     
-    def put(self, endpoint: str, data: Optional[Dict] = None, **kwargs) -> APIResponse:
+    def put(self, endpoint: str, data: Optional[Dict] = None, **kwargs) -> HttpResponse:
         """发送PUT请求"""
-        kwargs.setdefault('json', data)
+        kwargs['data'] = data
         return self.request('PUT', endpoint, **kwargs)
     
-    def delete(self, endpoint: str, **kwargs) -> APIResponse:
+    def delete(self, endpoint: str, **kwargs) -> HttpResponse:
         """发送DELETE请求"""
         return self.request('DELETE', endpoint, **kwargs)
     
@@ -462,7 +431,7 @@ class StableAPIClient:
         requests_list: List[Dict[str, Any]],
         max_concurrent: int = 5,
         delay_between_batches: float = 0.1
-    ) -> List[APIResponse]:
+    ) -> List[HttpResponse]:
         """
         批量发送请求
         
@@ -498,8 +467,8 @@ class StableAPIClient:
                     responses.append((i, response))
                 except Exception as e:
                     logger.error(f"批量请求异常: {method} {endpoint} - {str(e)}")
-                    responses.append((i, APIResponse(
-                        status=APIStatus.UNKNOWN_ERROR,
+                    responses.append((i, HttpResponse(
+                        status=HttpStatus.UNKNOWN_ERROR,
                         error_message=str(e),
                         url=endpoint
                     )))
