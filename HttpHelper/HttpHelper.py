@@ -37,7 +37,7 @@ class HttpStatus(Enum):
 @dataclass
 class HttpResponse:
     """API响应数据类"""
-    status: HttpStatus
+    status: str = HttpStatus.UNKNOWN_ERROR
     data: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     status_code: Optional[int] = None
